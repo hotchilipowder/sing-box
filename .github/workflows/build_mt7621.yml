@@ -1,4 +1,4 @@
-name: Build
+name: Build-for-mt7621
 
 on:
   workflow_dispatch:
@@ -14,19 +14,9 @@ on:
         default: "All"
         options:
           - All
-          - Binary
-          - Android
-          - Apple
-          - app-store
-          - iOS
-          - macOS
-          - tvOS
-          - macOS-standalone
-          - publish-android
   push:
     branches:
-      - main-next
-      - dev-next
+      - mt7621
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build }}
