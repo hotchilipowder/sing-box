@@ -122,16 +122,7 @@ jobs:
       - name: Build
         if: matrix.goos != 'android'
         run: |-
-          goreleaser release --clean --split
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          GOPATH: ${{ env.HOME }}/go
-          GOARM: ${{ matrix.goarm }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
-          NFPM_KEY_PATH: ${{ env.HOME }}/.gnupg/sagernet.key
-          NFPM_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GOARCH=mipsle GOMIPS=softfloat GOOS=linux CGO_ENABLED=0 go build -trimpath -ldflags '-X "github.com/sagernet/sing-box/constant.Version=${{ needs.calculate_version.outputs.version }}" -s -buildid=' -o dist/sing-box
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
@@ -145,8 +136,6 @@ jobs:
     needs:
       - calculate_version
       - build
-      - build_android
-      - build_apple
     steps:
       - name: Checkout
         uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
@@ -182,15 +171,6 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Merge builds
-        if: github.event_name != 'workflow_dispatch' || inputs.build == 'All' || inputs.build == 'Binary'
-        run: |-
-          goreleaser continue --merge --skip publish
-          mkdir -p dist/release
-          mv dist/*/sing-box*{tar.gz,zip,deb,rpm,_amd64.pkg.tar.zst,_arm64.pkg.tar.zst} dist/release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
       - name: Upload builds
         if: ${{ env.PUBLISHED == 'false' }}
         run: |-
