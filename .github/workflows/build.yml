@@ -98,7 +98,8 @@ jobs:
           mv go $HOME/go/go1.20.14
       - name: Build
         run: |-
-          GOARCH=mipsle GOMIPS=softfloat GOOS=linux CGO_ENABLED=0 go build -trimpath -ldflags '-X "github.com/sagernet/sing-box/constant.Version=${{ needs.calculate_version.outputs.version }}" -s -buildid=' -o dist/sing-box
+          # GOARCH=mipsle GOMIPS=softfloat GOOS=linux
+          GOARCH=amd64 GOOS=linux CGO_ENABLED=0 go build -trimpath -ldflags '-X "github.com/sagernet/sing-box/constant.Version=${{ needs.calculate_version.outputs.version }}" -s -buildid=' -o dist/sing-box
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
