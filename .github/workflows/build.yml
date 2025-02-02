@@ -96,92 +96,11 @@ jobs:
           wget https://dl.google.com/go/go1.20.14.linux-amd64.tar.gz
           tar -xzf go1.20.14.linux-amd64.tar.gz
           mv go $HOME/go/go1.20.14
-      - name: Setup Android NDK
-        if: matrix.goos == 'android'
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r28-beta2
-          local-cache: true
-      - name: Setup Goreleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser-pro
-          version: 2.5.1
-          install-only: true
-      - name: Extract signing key
-        run: |-
-          mkdir -p $HOME/.gnupg
-          cat > $HOME/.gnupg/sagernet.key <<EOF
-          ${{ secrets.GPG_KEY }}
-          EOF
-          echo "HOME=$HOME" >> "$GITHUB_ENV"
-      - name: Set tag
-        run: |-
-          git ls-remote --exit-code --tags origin v${{ needs.calculate_version.outputs.version }} || echo "PUBLISHED=false" >> "$GITHUB_ENV"
-          git tag v${{ needs.calculate_version.outputs.version }} -f
       - name: Build
-        if: matrix.goos != 'android'
         run: |-
           GOARCH=mipsle GOMIPS=softfloat GOOS=linux CGO_ENABLED=0 go build -trimpath -ldflags '-X "github.com/sagernet/sing-box/constant.Version=${{ needs.calculate_version.outputs.version }}" -s -buildid=' -o dist/sing-box
       - name: Upload artifact
-        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.name }}
           path: 'dist'
-  upload:
-    name: Upload builds
-    if: always() && github.event_name == 'workflow_dispatch' && (inputs.build == 'All' || inputs.build == 'Binary' || inputs.build == 'Android' || inputs.build == 'Apple' || inputs.build == 'macOS-standalone')
-    runs-on: ubuntu-latest
-    needs:
-      - calculate_version
-      - build
-    steps:
-      - name: Checkout
-        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
-        with:
-          fetch-depth: 0
-      - name: Setup Goreleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser-pro
-          version: 2.5.1
-          install-only: true
-      - name: Cache ghr
-        uses: actions/cache@v4
-        id: cache-ghr
-        with:
-          path: |
-            ~/go/bin/ghr
-          key: ghr
-      - name: Setup ghr
-        if: steps.cache-ghr.outputs.cache-hit != 'true'
-        run: |-
-          cd $HOME
-          git clone https://github.com/nekohasekai/ghr ghr
-          cd ghr
-          go install -v .
-      - name: Set tag
-        run: |-
-          git ls-remote --exit-code --tags origin v${{ needs.calculate_version.outputs.version }} || echo "PUBLISHED=false" >> "$GITHUB_ENV"
-          git tag v${{ needs.calculate_version.outputs.version }} -f
-          echo "VERSION=${{ needs.calculate_version.outputs.version }}" >> "$GITHUB_ENV"
-      - name: Download builds
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-      - name: Upload builds
-        if: ${{ env.PUBLISHED == 'false' }}
-        run: |-
-          export PATH="$PATH:$HOME/go/bin"
-          ghr --replace --draft --prerelease -p 5 "v${VERSION}" dist/release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Replace builds
-        if: ${{ env.PUBLISHED != 'false' }}
-        run: |-
-          export PATH="$PATH:$HOME/go/bin"
-          ghr --replace -p 5 "v${VERSION}" dist/release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
