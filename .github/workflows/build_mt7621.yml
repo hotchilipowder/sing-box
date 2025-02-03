@@ -92,5 +92,12 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: binary-${{ matrix.name }}.zip
+          name: binary-${{ matrix.name }}
           path: 'dist'
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/binary-${{ matrix.name }}
+          tag_name: binary-${{ matrix.name }}
