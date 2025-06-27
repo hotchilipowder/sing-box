@@ -47,6 +47,7 @@ func NewServer(ctx context.Context, logger logger.ContextLogger, options option.
 	server := &Server{
 		ctx:       ctx,
 		tlsConfig: tlsConfig,
+		logger:    logger,
 		handler:   handler,
 		h2Server: &http2.Server{
 			IdleTimeout: time.Duration(options.IdleTimeout),
@@ -132,7 +133,7 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		if requestBody != nil {
 			conn = bufio.NewCachedConn(conn, requestBody)
 		}
-		s.handler.NewConnectionEx(request.Context(), conn, source, M.Socksaddr{}, nil)
+		s.handler.NewConnectionEx(DupContext(request.Context()), conn, source, M.Socksaddr{}, nil)
 	} else {
 		writer.WriteHeader(http.StatusOK)
 		done := make(chan struct{})
@@ -164,7 +165,7 @@ func (s *Server) Serve(listener net.Listener) error {
 		if len(s.tlsConfig.NextProtos()) == 0 {
 			s.tlsConfig.SetNextProtos([]string{http2.NextProtoTLS, "http/1.1"})
 		} else if !common.Contains(s.tlsConfig.NextProtos(), http2.NextProtoTLS) {
-			s.tlsConfig.SetNextProtos(append([]string{"h2"}, s.tlsConfig.NextProtos()...))
+			s.tlsConfig.SetNextProtos(append([]string{http2.NextProtoTLS}, s.tlsConfig.NextProtos()...))
 		}
 		listener = aTLS.NewListener(listener, s.tlsConfig)
 	}

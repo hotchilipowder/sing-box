@@ -190,6 +190,8 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 			IPRoute2RuleIndex:        ruleIndex,
 			AutoRedirectInputMark:    inputMark,
 			AutoRedirectOutputMark:   outputMark,
+			Inet4LoopbackAddress:     common.Filter(options.LoopbackAddress, netip.Addr.Is4),
+			Inet6LoopbackAddress:     common.Filter(options.LoopbackAddress, netip.Addr.Is6),
 			StrictRoute:              options.StrictRoute,
 			IncludeInterface:         options.IncludeInterface,
 			ExcludeInterface:         options.ExcludeInterface,
@@ -214,7 +216,6 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 		if !loaded {
 			return nil, E.New("parse route_address_set: rule-set not found: ", routeAddressSet)
 		}
-		ruleSet.IncRef()
 		inbound.routeRuleSet = append(inbound.routeRuleSet, ruleSet)
 	}
 	for _, routeExcludeAddressSet := range options.RouteExcludeAddressSet {
@@ -222,7 +223,6 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 		if !loaded {
 			return nil, E.New("parse route_exclude_address_set: rule-set not found: ", routeExcludeAddressSet)
 		}
-		ruleSet.IncRef()
 		inbound.routeExcludeRuleSet = append(inbound.routeExcludeRuleSet, ruleSet)
 	}
 	if options.AutoRedirect {
@@ -245,7 +245,7 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 		if err != nil {
 			return nil, E.Cause(err, "initialize auto-redirect")
 		}
-		if !C.IsAndroid && (len(inbound.routeRuleSet) > 0 || len(inbound.routeExcludeRuleSet) > 0) {
+		if !C.IsAndroid {
 			inbound.tunOptions.AutoRedirectMarkMode = true
 			err = networkManager.RegisterAutoRedirectOutputMark(inbound.tunOptions.AutoRedirectOutputMark)
 			if err != nil {
@@ -312,9 +312,11 @@ func (t *Inbound) Start(stage adapter.StartStage) error {
 				if len(ipSets) == 0 {
 					t.logger.Warn("route_address_set: no destination IP CIDR rules found in rule-set: ", routeRuleSet.Name())
 				}
-				t.routeRuleSetCallback = append(t.routeRuleSetCallback, routeRuleSet.RegisterCallback(t.updateRouteAddressSet))
-				routeRuleSet.DecRef()
+				routeRuleSet.IncRef()
 				t.routeAddressSet = append(t.routeAddressSet, ipSets...)
+				if t.autoRedirect != nil {
+					t.routeRuleSetCallback = append(t.routeRuleSetCallback, routeRuleSet.RegisterCallback(t.updateRouteAddressSet))
+				}
 			}
 			t.routeExcludeAddressSet = common.FlatMap(t.routeExcludeRuleSet, adapter.RuleSet.ExtractIPSet)
 			for _, routeExcludeRuleSet := range t.routeExcludeRuleSet {
@@ -322,9 +324,11 @@ func (t *Inbound) Start(stage adapter.StartStage) error {
 				if len(ipSets) == 0 {
 					t.logger.Warn("route_address_set: no destination IP CIDR rules found in rule-set: ", routeExcludeRuleSet.Name())
 				}
-				t.routeExcludeRuleSetCallback = append(t.routeExcludeRuleSetCallback, routeExcludeRuleSet.RegisterCallback(t.updateRouteAddressSet))
-				routeExcludeRuleSet.DecRef()
+				routeExcludeRuleSet.IncRef()
 				t.routeExcludeAddressSet = append(t.routeExcludeAddressSet, ipSets...)
+				if t.autoRedirect != nil {
+					t.routeExcludeRuleSetCallback = append(t.routeExcludeRuleSetCallback, routeExcludeRuleSet.RegisterCallback(t.updateRouteAddressSet))
+				}
 			}
 		}
 		var (
@@ -357,6 +361,9 @@ func (t *Inbound) Start(stage adapter.StartStage) error {
 		if t.platformInterface != nil {
 			tunInterface, err = t.platformInterface.OpenTun(&tunOptions, t.platformOptions)
 		} else {
+			if HookBeforeCreatePlatformInterface != nil {
+				HookBeforeCreatePlatformInterface()
+			}
 			tunInterface, err = tun.New(tunOptions)
 		}
 		monitor.Finish()

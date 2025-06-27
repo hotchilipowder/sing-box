@@ -3,6 +3,7 @@ package rule
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"io"
 	"net"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"github.com/sagernet/sing/common/logger"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
+	"github.com/sagernet/sing/common/ntp"
 	"github.com/sagernet/sing/common/x/list"
 	"github.com/sagernet/sing/service"
 	"github.com/sagernet/sing/service/pause"
@@ -103,7 +105,7 @@ func (s *RemoteRuleSet) StartContext(ctx context.Context, startContext *adapter.
 		}
 	}
 	if s.lastUpdated.IsZero() {
-		err := s.fetchOnce(ctx, startContext)
+		err := s.fetch(ctx, startContext)
 		if err != nil {
 			return E.Cause(err, "initial rule-set: ", s.options.Tag)
 		}
@@ -198,7 +200,7 @@ func (s *RemoteRuleSet) loadBytes(content []byte) error {
 
 func (s *RemoteRuleSet) loopUpdate() {
 	if time.Since(s.lastUpdated) > s.updateInterval {
-		err := s.fetchOnce(s.ctx, nil)
+		err := s.fetch(s.ctx, nil)
 		if err != nil {
 			s.logger.Error("fetch rule-set ", s.options.Tag, ": ", err)
 		} else if s.refs.Load() == 0 {
@@ -211,18 +213,21 @@ func (s *RemoteRuleSet) loopUpdate() {
 		case <-s.ctx.Done():
 			return
 		case <-s.updateTicker.C:
-			s.pauseManager.WaitActive()
-			err := s.fetchOnce(s.ctx, nil)
-			if err != nil {
-				s.logger.Error("fetch rule-set ", s.options.Tag, ": ", err)
-			} else if s.refs.Load() == 0 {
-				s.rules = nil
-			}
+			s.updateOnce()
 		}
 	}
 }
 
-func (s *RemoteRuleSet) fetchOnce(ctx context.Context, startContext *adapter.HTTPStartContext) error {
+func (s *RemoteRuleSet) updateOnce() {
+	err := s.fetch(s.ctx, nil)
+	if err != nil {
+		s.logger.Error("fetch rule-set ", s.options.Tag, ": ", err)
+	} else if s.refs.Load() == 0 {
+		s.rules = nil
+	}
+}
+
+func (s *RemoteRuleSet) fetch(ctx context.Context, startContext *adapter.HTTPStartContext) error {
 	s.logger.Debug("updating rule-set ", s.options.Tag, " from URL: ", s.options.RemoteOptions.URL)
 	var httpClient *http.Client
 	if startContext != nil {
@@ -234,6 +239,10 @@ func (s *RemoteRuleSet) fetchOnce(ctx context.Context, startContext *adapter.HTT
 				TLSHandshakeTimeout: C.TCPTimeout,
 				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 					return s.dialer.DialContext(ctx, network, M.ParseSocksaddr(addr))
+				},
+				TLSClientConfig: &tls.Config{
+					Time:    ntp.TimeFuncFromContext(s.ctx),
+					RootCAs: adapter.RootPoolFromContext(s.ctx),
 				},
 			},
 		}
@@ -301,8 +310,10 @@ func (s *RemoteRuleSet) fetchOnce(ctx context.Context, startContext *adapter.HTT
 
 func (s *RemoteRuleSet) Close() error {
 	s.rules = nil
-	s.updateTicker.Stop()
 	s.cancel()
+	if s.updateTicker != nil {
+		s.updateTicker.Stop()
+	}
 	return nil
 }
 

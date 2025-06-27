@@ -16,15 +16,17 @@ import (
 )
 
 var (
-	debugEnabled bool
-	target       string
-	platform     string
+	debugEnabled  bool
+	target        string
+	platform      string
+	withTailscale bool
 )
 
 func init() {
 	flag.BoolVar(&debugEnabled, "debug", false, "enable debug")
 	flag.StringVar(&target, "target", "android", "target platform")
 	flag.StringVar(&platform, "platform", "", "specify platform")
+	flag.BoolVar(&withTailscale, "tailscale", false, "build tailscale for iOS and tvOS")
 }
 
 func main() {
@@ -45,6 +47,7 @@ var (
 	debugFlags  []string
 	sharedTags  []string
 	iosTags     []string
+	memcTags    []string
 	debugTags   []string
 )
 
@@ -58,8 +61,9 @@ func init() {
 	sharedFlags = append(sharedFlags, "-ldflags", "-X github.com/sagernet/sing-box/constant.Version="+currentTag+" -s -w -buildid=")
 	debugFlags = append(debugFlags, "-ldflags", "-X github.com/sagernet/sing-box/constant.Version="+currentTag)
 
-	sharedTags = append(sharedTags, "with_gvisor", "with_quic", "with_wireguard", "with_ech", "with_utls", "with_clash_api")
-	iosTags = append(iosTags, "with_dhcp", "with_low_memory", "with_conntrack")
+	sharedTags = append(sharedTags, "with_gvisor", "with_quic", "with_wireguard", "with_utls", "with_clash_api", "with_conntrack")
+	iosTags = append(iosTags, "with_dhcp", "with_low_memory")
+	memcTags = append(memcTags, "with_tailscale")
 	debugTags = append(debugTags, "debug")
 }
 
@@ -99,18 +103,19 @@ func buildAndroid() {
 		"-javapkg=io.nekohasekai",
 		"-libname=box",
 	}
+
 	if !debugEnabled {
 		args = append(args, sharedFlags...)
 	} else {
 		args = append(args, debugFlags...)
 	}
 
-	args = append(args, "-tags")
-	if !debugEnabled {
-		args = append(args, strings.Join(sharedTags, ","))
-	} else {
-		args = append(args, strings.Join(append(sharedTags, debugTags...), ","))
+	tags := append(sharedTags, memcTags...)
+	if debugEnabled {
+		tags = append(tags, debugTags...)
 	}
+
+	args = append(args, "-tags", strings.Join(tags, ","))
 	args = append(args, "./experimental/libbox")
 
 	command := exec.Command(build_shared.GoBinPath+"/gomobile", args...)
@@ -149,6 +154,10 @@ func buildApple() {
 		"-target", bindTarget,
 		"-libname=box",
 	}
+	if withTailscale {
+		args = append(args, "-tags-macos="+strings.Join(memcTags, ","))
+	}
+
 	if !debugEnabled {
 		args = append(args, sharedFlags...)
 	} else {
@@ -156,12 +165,14 @@ func buildApple() {
 	}
 
 	tags := append(sharedTags, iosTags...)
-	args = append(args, "-tags")
-	if !debugEnabled {
-		args = append(args, strings.Join(tags, ","))
-	} else {
-		args = append(args, strings.Join(append(tags, debugTags...), ","))
+	if withTailscale {
+		tags = append(tags, memcTags...)
 	}
+	if debugEnabled {
+		tags = append(tags, debugTags...)
+	}
+
+	args = append(args, "-tags", strings.Join(tags, ","))
 	args = append(args, "./experimental/libbox")
 
 	command := exec.Command(build_shared.GoBinPath+"/gomobile", args...)
